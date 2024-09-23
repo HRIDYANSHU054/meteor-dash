@@ -1,101 +1,224 @@
-import Image from "next/image";
+"use client";
 
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { Boulder, SetHandResultsType } from "@/types/types";
+import HandRecognizer from "@/app/_components/HandRecognizer";
+import RocketComponent from "./_components/RocketComponent";
+import BoulderComponent from "@/app/_components/BoulderComponent";
+import GameInfoOverlay from "@/app/_components/GameInfoOverlay";
+import { playAudioFX, playBackgroundAudio } from "@/utils/audioHandler";
+
+let isInvincible = false; //after a collision, grant the user invincibility for 1s(no collision is detected in this time)
+let remainingLives: number;
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [isLoading, setIsLoading] = useState(false);
+  const [rocketLeft, setRocketLeft] = useState(0);
+  const [isDetected, setIsDetected] = useState(false);
+  const [degrees, setDegrees] = useState(0);
+  const [boulders, setBoulders] = useState<Boulder[]>([]);
+  const [collisionTrigger, setCollisionTrigger] = useState(0);
+  const [isColliding, setIsColliding] = useState(false);
+  const [distance, setDistance] = useState(0);
+  const [remainingLivesState, setRemainingLivesState] = useState(0);
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [rocketCoords, setRocketCoords] = useState<DOMRect | null>(null);
+  const rocketRef = useRef<HTMLDivElement | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+  //BG audio
+  useEffect(
+    function () {
+      if (isDetected && !isGameOver) {
+        playBackgroundAudio(false);
+      } else {
+        playBackgroundAudio(true);
+      }
+    },
+    [isGameOver, isDetected]
+  );
+
+  useEffect(function () {
+    //centers the rocket at the start of the game ( technically also on further remounts of this page )
+    setRocketLeft(window.innerWidth / 2);
+    remainingLives = 5; //start with 5 lives
+    setRemainingLivesState(remainingLives);
+  }, []);
+
+  useEffect(
+    function () {
+      if (isDetected && !isGameOver) {
+        const distanceIntervalId = setInterval(() => {
+          setDistance((dist) => dist + 1);
+        }, 100); //every 100ms the rocket covers 1mile
+
+        return () => {
+          if (distanceIntervalId) clearInterval(distanceIntervalId);
+        };
+      }
+    },
+    [isGameOver, isDetected]
+  );
+
+  useEffect(
+    function () {
+      if (isDetected && !isGameOver) {
+        const generateIntervalId = setInterval(() => {
+          setBoulders((boulders) => {
+            let bouldersArr = [...boulders];
+            for (let i = 0; i < 4; i++) {
+              const now = Date.now(); //timestamp will help us to check the boulder age
+              bouldersArr = [
+                ...bouldersArr,
+                {
+                  timestamp: now,
+                  id: `${now}-${Math.random()}`,
+                },
+              ];
+            }
+            return bouldersArr;
+          });
+        }, 1000); //every 1s create 4 more boulder
+
+        //for cleaning up the boulders(5s old) from dom
+        const removalIntervalId = setInterval(() => {
+          setBoulders((boulders) => {
+            const now = Date.now();
+            return boulders.filter((boulder) => now - boulder.timestamp < 5000);
+          });
+        }, 5000);
+
+        return () => {
+          if (generateIntervalId) clearInterval(generateIntervalId);
+          if (removalIntervalId) clearInterval(removalIntervalId);
+        };
+      }
+    },
+    [isGameOver, isDetected]
+  );
+
+  /* const setHandResults: SetHandResultsType = (result) => {
+    setIsLoading((prev) => result.isLoading ?? prev);
+    setIsDetected((prev) => result.isDetected ?? prev);
+    if (result.degrees && result.degrees !== 0) {
+      setDegrees(result.degrees);
+      setCollisionTrigger(Math.random());
+      setRocketLeft((rocketLeft) => {
+        //a little logic to prevent rocket flying off from the screen
+        const newRocketLeft = rocketLeft - (result.degrees ?? 0) / 6;
+        if (
+          newRocketLeft < 20 ||
+          newRocketLeft > window.innerWidth - (20 + 32)
+        ) {
+          //we want 20px padding on left and right
+          return rocketLeft;
+        }
+        return newRocketLeft;
+      });
+    }
+
+    if (rocketRef.current)
+      setRocketCoords(rocketRef.current.getBoundingClientRect());
+  }; */
+
+  const setHandResults = useCallback<SetHandResultsType>(
+    (result) => {
+      setIsLoading((prev) => result.isLoading ?? prev);
+      setIsDetected((prev) => result.isDetected ?? prev);
+
+      if (result.degrees && result.degrees !== 0) {
+        setDegrees(result.degrees);
+        setCollisionTrigger(Math.random());
+
+        setRocketLeft((rocketLeft) => {
+          const newRocketLeft = rocketLeft - (result.degrees ?? 0) / 6;
+          if (
+            newRocketLeft < 20 ||
+            newRocketLeft > window.innerWidth - (20 + 32)
+          ) {
+            return rocketLeft;
+          }
+          return newRocketLeft;
+        });
+      }
+
+      if (rocketRef.current) {
+        setRocketCoords(rocketRef.current.getBoundingClientRect());
+      }
+    },
+    [
+      setIsLoading,
+      setIsDetected,
+      setDegrees,
+      setCollisionTrigger,
+      setRocketLeft,
+      rocketRef,
+      setRocketCoords,
+    ]
+  );
+
+  const handleCollision = useCallback(() => {
+    //COLLISION 💥💥
+    //on collision do
+    if (!isInvincible && !isGameOver) {
+      console.log("COLLISION!!!");
+      isInvincible = true;
+      setIsColliding(isInvincible);
+      playAudioFX();
+      remainingLives = remainingLives - 1;
+      setRemainingLivesState(remainingLives);
+      if (remainingLives <= 0) {
+        // game over 💀
+        setIsGameOver(true);
+      }
+      setTimeout(() => {
+        isInvincible = false;
+        setIsColliding(isInvincible);
+      }, 1500);
+    }
+  }, [isGameOver]);
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center p-24">
+      <div
+        className={`absolute left-3 top-2 z-30 transition-all duration-500 ${
+          isDetected ? " w-36 " : " w-48 "
+        }`}
+      >
+        <HandRecognizer setHandResults={setHandResults} />
+      </div>
+      <div
+        id="rocket-container"
+        ref={rocketRef}
+        style={{
+          position: "absolute",
+          left: rocketLeft,
+          transitionDuration: "10ms",
+          transition: "all",
+          marginTop: "500px",
+        }}
+      >
+        <RocketComponent degrees={degrees} />
+      </div>
+      <div className="absolute z-10 h-screen w-screen overflow-hidden">
+        {boulders.map((boulder) => (
+          <BoulderComponent
+            key={boulder.id}
+            isMoving={isDetected}
+            rocketCoords={rocketCoords}
+            onCollision={handleCollision}
+            checkCollisionWhen={collisionTrigger}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        ))}
+      </div>
+
+      <GameInfoOverlay
+        isLoading={isLoading}
+        isDetected={isDetected}
+        isColliding={isColliding}
+        distance={distance}
+        isGameOver={isGameOver}
+        remainingLivesState={remainingLivesState}
+      />
+    </main>
   );
 }

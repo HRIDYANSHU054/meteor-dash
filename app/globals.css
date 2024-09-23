@@ -25,3 +25,36 @@ body {
     text-wrap: balance;
   }
 }
+
+.boulder_shadow {
+  filter: drop-shadow(10px, 10px, 5px, #00000066);
+}
+
+.rocket_shadow {
+  filter: drop-shadow(3px, 3px, 2px, #00000066);
+}
+
+@keyframes falling {
+  to {
+    top: 2000px;
+  }
+}
+
+/*credits: https://unused-css.com/blog/css-shake-animation/ */
+@keyframes shaking {
+  0% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(5deg);
+  }
+  50% {
+    transform: rotate(0eg);
+  }
+  75% {
+    transform: rotate(-5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
